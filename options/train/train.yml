@@ -1,0 +1,185 @@
+name: train
+model_type: SRModel
+scale: 2
+num_gpu: auto
+manual_seed: 10
+auto_resume: True
+root_path: "~/PGSFNet/"
+
+
+# dataset and data loader settings
+datasets:
+  train:
+    task: SR
+    name: RealCE #RealCE datasets
+    type: PairedImageDatasetRealCEwDEC
+    dataroot_gt: ~/autodl-tmp/RealCE/train
+    dataroot_lq: ~/autodl-tmp/RealCE/train
+    filename_tmpl: '{}'
+    dt_size: 64
+    io_backend:
+      type: disk
+    gt_size: 64
+    use_hflip: True
+    use_rot: True
+
+    # data loader
+    use_shuffle: True
+    num_worker_per_gpu: 1
+    batch_size_per_gpu: 1
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  val:
+    task: SR
+    name: RealCE
+    type: PairedImageDatasetRealCEwDEC
+    dataroot_gt: ~/autodl-tmp/RealCE/val
+    dataroot_lq: ~/autodl-tmp/RealCE/val
+    filename_tmpl: '{}'
+    dt_size: 32
+    gt_size: 32
+    save_position: True
+    io_backend:
+      type: disk
+
+
+# network structures
+network_g:
+  type: PGSFNet
+  img_size: 64
+  in_channels: 3
+  out_channels: 3
+  embed_dim: 96 #96
+  upscale: 2
+  img_range: 1.0
+  upsampler: "pixelshuffle"
+  # upsampler: "freup_area"
+  depths: [2, 1, 3]
+  num_heads_window: [4, 4, 4]
+  num_heads_stripe: [1, 1, 1]
+  window_size: 4
+  stripe_shift: False
+  mlp_ratio: 4.0
+  qkv_bias: True
+  qkv_proj_type: "linear"
+  anchor_proj_type: "avgpool"
+  anchor_one_stage: True
+  anchor_window_down_factor: 1
+  out_proj_type: "linear"
+  local_connection: False
+  drop_rate: 0.0
+  attn_drop_rate: 0.0
+  drop_path_rate: 0.1
+  pretrained_window_size: [0, 0]
+  pretrained_stripe_size: [0, 0]
+  conv_type: "1conv"
+  init_method: "n"
+
+
+  num_filter: 3
+  filter_size: "(5,5)"
+  use_gaussian: True
+  gaussian_kernel_size: "(5,5)"
+  gaussian_sigma: 0.5
+  laplace_range: 4
+  res_td: 1.0 #td + x
+
+  td_attn_drop: 0.0
+  td_res_scale: 1.0
+  td_transformer_embed_dim: 96 #128
+  td_transformer_num_heads: 4
+  num_encoder_layers: 1
+  num_decoder_layers: 1
+  td_transformer_dropout: 0.1   
+  td_window_size: 4
+  normalize_before: True
+  td_num_classes: 1
+  td_num_queries: 200
+
+
+# pretrain path
+path:
+  pretrain_network_g: ~/PGSFNet/experiments/train/models/
+  strict_load_g: True
+  resume_state: ~
+
+
+# training settings
+train:
+  optim_g:
+    type: Adam
+    lr: !!float 2e-4
+    weight_decay: 0
+    betas: [0.9, 0.99]
+
+  scheduler:
+    type: MultiStepLR
+    milestones: [250000, 400000, 450000, 475000]
+    gamma: 0.5
+
+  total_iter: 200000
+  warmup_iter: -1  # no warm up
+
+
+  # losses
+  pixel_opt: #L1
+    type: L1Loss
+    loss_weight: 1.0
+    reduction: mean
+
+  perceptual_opt: #L_per
+    type: PerceptualLoss
+    layer_weights: {'conv5_4': 1.}
+    vgg_type: vgg19
+    use_input_norm: True
+    range_norm: False
+    perceptual_weight: 0.5
+    style_weight: 0.5
+    criterion: l1
+
+  sobel_opt: #L_Sobel
+    type: SobelLoss
+    loss_weight: 1.0
+
+
+# validation settings
+val:
+  val_freq: 30000
+  save_img: True
+
+  metrics:
+    psnr: # metric name
+      type: calculate_psnr
+      crop_border: 2
+      test_y_channel: True
+      better: higher
+
+    ssim:
+      type: calculate_ssim
+      crop_border: 2
+      test_y_channel: True
+      better: higher
+
+    lpips:
+      type: calculate_lpips
+      better: lower
+
+    fid:
+      type: calculate_fid
+      better: lower
+
+
+# logging settings
+logger:
+  print_freq: 100
+  save_checkpoint_freq: 2000
+  use_tb_logger: True
+  wandb:
+    project: ~
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500
